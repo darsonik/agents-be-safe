@@ -1,0 +1,7 @@
+[project]
+name = "agents-be-safe"
+version = "0.1.0"
+description = "Read-only security assessment of agent skills and MCP tools using Fireworks and Jev"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = []
