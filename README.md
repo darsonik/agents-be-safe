@@ -96,3 +96,12 @@ Integration references: [Fireworks chat completions](https://docs.fireworks.ai/a
 Each live scan with eligible agent, skill, or MCP files attempts both configured AI engines. Demo scans intentionally skip them. Engine results now distinguish completed analysis, failed attempts (with a reason), and skipped calls. Missing credentials are shown as not configured.
 
 The reasoning model starts with a 16,000-token completion budget and retries once at 32,000 tokens only when the provider reports token-limit truncation. This can increase scan latency and inference cost. Partial responses are rejected, and provider failures keep the report marked incomplete even if Jev succeeds. Restart the server and run a fresh scan to see updated statuses; previously downloaded reports are unchanged.
+
+## License
+
+This project is licensed under a custom source-available license.
+
+- **Personal, Educational, & Open-Source Use:** Free of charge to use, study, modify, and distribute.
+- **Commercial Use:** Requires prior written approval and royalty arrangements. For commercial inquiries, contact [tuhinkarmakar98@outlook.com](mailto:tuhinkarmakar98@outlook.com).
+
+See [LICENSE](LICENSE) for the full terms.
