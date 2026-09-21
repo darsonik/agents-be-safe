@@ -73,3 +73,30 @@ class ProvidersTests(unittest.TestCase):
             result = FireworksClient("fake", "test").analyze(files)
         self.assertEqual(result[0]["origin"], "Fireworks")
         self.assertEqual(request.call_args.args[1]["response_format"], {"type": "json_object"})
+
+    def test_truncated_response_retries_once_with_more_budget(self):
+        replies = [
+            {"choices": [{"finish_reason": "length", "message": {"content": "partial"}}]},
+            {"choices": [{"finish_reason": "stop", "message": {"content": '{"findings": []}'}}]},
+        ]
+        with patch.object(http_client, "request_json", side_effect=replies) as request:
+            self.assertEqual(FireworksClient("fake", "test").analyze([]), [])
+        self.assertEqual([c.args[1]["max_tokens"] for c in request.call_args_list], [16000, 32000])
+
+    def test_retry_exhaustion_reports_truncation(self):
+        with patch.object(
+            http_client, "request_json", return_value={"choices": [{"finish_reason": "length"}]}
+        ) as request:
+            with self.assertRaisesRegex(ScanError, "token budget after two attempts"):
+                FireworksClient("fake", "test").analyze([])
+        self.assertEqual(request.call_count, 2)
+
+    def test_non_length_finish_is_not_retried(self):
+        with patch.object(
+            http_client,
+            "request_json",
+            return_value={"choices": [{"finish_reason": "content_filter"}]},
+        ) as request:
+            with self.assertRaisesRegex(ScanError, "content_filter"):
+                FireworksClient("fake", "test").analyze([])
+        self.assertEqual(request.call_count, 1)

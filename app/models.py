@@ -70,6 +70,7 @@ class Report(TypedDict):
     verdict: str
     coverage_status: str
     providers: dict[str, str]
+    provider_runs: dict[str, dict[str, str]]
     dimensions: dict[str, float]
     findings: list[Finding]
     warnings: list[str]

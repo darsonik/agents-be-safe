@@ -90,3 +90,9 @@ python -m ruff format --check app tests main.py
 Paid provider calls require configured credentials and are not part of offline tests.
 
 Integration references: [Fireworks chat completions](https://docs.fireworks.ai/api-reference/post-chatcompletions), [TypeSafe HTTP API](https://docs.typesafe.ai/api), [Noul judgments](https://docs.typesafe.ai/primitives/noul), [citation checking pattern](https://docs.typesafe.ai/cookbooks/citation_check).
+
+## Engine status and incomplete responses
+
+Each live scan with eligible agent, skill, or MCP files attempts both configured AI engines. Demo scans intentionally skip them. Engine results now distinguish completed analysis, failed attempts (with a reason), and skipped calls. Missing credentials are shown as not configured.
+
+The reasoning model starts with a 16,000-token completion budget and retries once at 32,000 tokens only when the provider reports token-limit truncation. This can increase scan latency and inference cost. Partial responses are rejected, and provider failures keep the report marked incomplete even if Jev succeeds. Restart the server and run a fresh scan to see updated statuses; previously downloaded reports are unchanged.

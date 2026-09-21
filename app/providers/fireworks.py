@@ -38,42 +38,54 @@ class FireworksClient:
             len(files),
             sum(len(f["content"]) for f in files),
         )
-        result = http_client.request_json(
-            ENDPOINT,
-            {
-                "model": self.model,
-                "temperature": 0,
-                "max_tokens": 8000,
-                "response_format": {"type": "json_object"},
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": json.dumps({"source_files": files})},
-                ],
-            },
-            token=self.api_key,
-            timeout=180,
-        )
-        try:
-            choice = result["choices"][0]
-            finish_reason = choice.get("finish_reason")
-            usage = result.get("usage", {})
-            logger.info(
-                "Fireworks response received (finish_reason=%s, usage=%s)", finish_reason, usage
+        # Reasoning tokens and the final JSON share the completion budget.
+        # Retry only truncation, never accept or parse a partial response.
+        for attempt, token_budget in enumerate((16000, 32000)):
+            result = http_client.request_json(
+                ENDPOINT,
+                {
+                    "model": self.model,
+                    "temperature": 0,
+                    "max_tokens": token_budget,
+                    "response_format": {"type": "json_object"},
+                    "messages": [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": json.dumps({"source_files": files})},
+                    ],
+                },
+                token=self.api_key,
+                timeout=180,
             )
-            if finish_reason != "stop":
-                logger.warning(
-                    "Fireworks output incomplete (finish_reason=%s, completion_tokens=%s, reasoning_tokens=%s)",
-                    finish_reason,
-                    usage.get("completion_tokens"),
-                    usage.get("completion_tokens_details", {}).get("reasoning_tokens"),
+            try:
+                choice = result["choices"][0]
+                finish_reason = choice.get("finish_reason")
+                usage = result.get("usage", {})
+                logger.info(
+                    "Fireworks response received (finish_reason=%s, usage=%s)", finish_reason, usage
                 )
-                raise ScanError("Fireworks output was incomplete.")
-            raw_content = choice["message"]["content"]
-            findings = validate_findings(json.loads(raw_content), files)
-            logger.info("Validated %d findings from Fireworks", len(findings))
-            return findings
-        except ScanError:
-            raise
-        except (AttributeError, KeyError, IndexError, TypeError, ValueError) as exc:
-            logger.warning("Failed to parse Fireworks response: %s (%s)", type(exc).__name__, exc)
-            raise ScanError("Fireworks returned an unreadable analysis.") from None
+                if finish_reason == "length" and attempt == 0:
+                    logger.info("Retrying truncated reasoning response with a larger token budget")
+                    continue
+                if finish_reason != "stop":
+                    logger.warning(
+                        "Fireworks output incomplete (finish_reason=%s, completion_tokens=%s, reasoning_tokens=%s)",
+                        finish_reason,
+                        usage.get("completion_tokens"),
+                        usage.get("completion_tokens_details", {}).get("reasoning_tokens"),
+                    )
+                    raise ScanError(
+                        "Reasoning output exceeded the token budget after two attempts."
+                        if finish_reason == "length"
+                        else f"Reasoning output was incomplete (finish_reason={finish_reason})."
+                    )
+                raw_content = choice["message"]["content"]
+                findings = validate_findings(json.loads(raw_content), files)
+                logger.info("Validated %d findings from Fireworks", len(findings))
+                return findings
+            except ScanError:
+                raise
+            except (AttributeError, KeyError, IndexError, TypeError, ValueError) as exc:
+                logger.warning(
+                    "Failed to parse Fireworks response: %s (%s)", type(exc).__name__, exc
+                )
+                raise ScanError("Fireworks returned an unreadable analysis.") from None

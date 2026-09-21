@@ -37,7 +37,20 @@ function render() {
     const bar = node('progress'); bar.max = 1; bar.value = probability; bar.setAttribute('aria-label', key.replaceAll('_',' ')); row.append(bar); $('dimensions').append(row);
   }
   $('providers').replaceChildren();
-  for (const [key, value] of Object.entries(r.providers)) { const row = node('div', undefined, 'provider'); row.append(node('b', key === 'jev' ? 'Jev' : 'Reasoning model'), node('span', key === 'jev' ? value : value.startsWith('Not applicable') ? 'Not applicable' : value === 'Not run' ? 'Not run' : 'Analysis completed')); $('providers').append(row); }
+  for (const [key, value] of Object.entries(r.providers)) {
+    const run = r.provider_runs?.[key];
+    let label;
+    if (run?.status === 'failed') label = 'Failed';
+    else if (run?.status === 'skipped') label = value === 'Not run' ? 'Skipped' : value;
+    else if (key === 'jev') label = value;
+    else if (run?.status === 'completed') label = 'Analysis completed';
+    else if (value.startsWith('Not applicable')) label = 'Not applicable';
+    else label = ['Not run', 'Failed', 'Not configured', 'Skipped (demo)'].includes(value) ? value : 'Analysis completed';
+    const row = node('div', undefined, 'provider');
+    row.append(node('b', key === 'jev' ? 'Jev' : 'Reasoning model'), node('span', label));
+    if (run?.reason) row.append(node('p', displayText(run.reason), 'muted'));
+    $('providers').append(row);
+  }
   $('warnings').replaceChildren(...r.warnings.map(w => node('li', displayText(w))));
   $('coverage-note').textContent = r.files.length === 0 ? 'No candidate agent skills, agent files, or MCP configuration files were found in this repository. Only supported agent and MCP files are selected; dependencies and external servers are not followed.' : `Inspected ${r.files.length} of ${r.candidate_count} candidate files. ${r.skipped.length} skipped entries. Repository tree ${r.tree_truncated ? 'was truncated by GitHub' : 'was not truncated'}. Only supported text formats are selected; dependencies and external servers are not followed.`;
   $('files').replaceChildren();
@@ -71,7 +84,7 @@ $('download-json').addEventListener('click', () => download(JSON.stringify(curre
 function md(value) { return String(value).replace(/[\\`*_{}\[\]()<>#!|]/g, '\\$&'); }
 $('download-md').addEventListener('click', () => {
   const r = currentReport;
-  const lines = ['# Agents Be Safe report', '', `Repository: ${md(r.repository)}`, `Commit: ${md(r.commit)}`, `Created: ${md(r.created_at)}`, `Mode: ${md(r.mode)}`, '', `Assessment: ${md(r.verdict)}`, `Coverage: ${md(r.coverage_status)}`, '', '## Engines', ...Object.entries(r.providers).map(([k,v]) => `- ${md(k)}: ${md(v)}`), '', '## Jev risk probabilities', ...Object.entries(r.dimensions).map(([k,v]) => `- ${md(k)}: ${Math.round(v*100)}%`), '', '## Findings'];
+  const lines = ['# Agents Be Safe report', '', `Repository: ${md(r.repository)}`, `Commit: ${md(r.commit)}`, `Created: ${md(r.created_at)}`, `Mode: ${md(r.mode)}`, '', `Assessment: ${md(r.verdict)}`, `Coverage: ${md(r.coverage_status)}`, '', '## Engines', ...Object.entries(r.providers).map(([k,v]) => `- ${md(k)}: ${md(v)}${r.provider_runs?.[k]?.reason ? ` — ${md(displayText(r.provider_runs[k].reason))}` : ''}`), '', '## Jev risk probabilities', ...Object.entries(r.dimensions).map(([k,v]) => `- ${md(k)}: ${Math.round(v*100)}%`), '', '## Findings'];
   for (const f of r.findings) lines.push('', `### ${md(f.severity.toUpperCase())}: ${md(f.title)}`, `${md(f.path)}:${f.line}`, '', md(f.explanation), '', `Evidence: ${md(f.evidence)}`, '', `Action: ${md(f.remediation)}`, '', `${md(f.origin)} · ${md(f.verification)}${f.support_probability === undefined ? '' : ` · support ${Math.round(f.support_probability*100)}%`}`);
   lines.push('', '## Coverage', `${r.files.length}/${r.candidate_count} candidate files inspected; tree truncated: ${r.tree_truncated}`, ...r.files.map(f => `- ${md(f.path)} (${md(f.kind)})`), ...r.skipped.map(f => `- Skipped ${md(f.path)}: ${md(f.reason)}`), '', '## Limitations', ...r.warnings.map(w => `- ${md(w)}`));
   download(lines.join('\n'), 'text/markdown', 'md');

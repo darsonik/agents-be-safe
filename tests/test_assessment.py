@@ -33,7 +33,8 @@ class AssessmentTests(unittest.TestCase):
         snap["files"] = [{"path": "SKILL.md", "kind": "Skill", "content": "# Hello"}]
         result = AssessmentService.from_settings(Settings()).assess(snap)
         self.assertEqual(result["verdict"], "Inconclusive")
-        self.assertEqual(result["providers"]["jev"], "Not run")
+        self.assertEqual(result["providers"]["jev"], "Not configured")
+        self.assertEqual(result["provider_runs"]["jev"]["status"], "skipped")
 
     def test_demo_makes_no_network_calls(self):
         with patch.object(http_client, "request_json") as request:
@@ -48,7 +49,30 @@ class AssessmentTests(unittest.TestCase):
         with patch.object(http_client, "request_json", side_effect=ScanError("Unavailable")):
             report = AssessmentService.from_settings(settings).assess(demo_snapshot())
         self.assertEqual(len(report["findings"]), 5)
-        self.assertEqual(report["providers"], {"fireworks": "Not run", "jev": "Not run"})
+        self.assertEqual(report["providers"], {"fireworks": "Failed", "jev": "Failed"})
+        self.assertEqual(report["provider_runs"]["fireworks"]["reason"], "Unavailable")
+        self.assertIn("Incomplete", report["coverage_status"])
+
+    def test_failed_reasoning_with_successful_jev_is_still_incomplete(self):
+        service = AssessmentService(FireworksClient("fake", "test"), JevClient("fake"))
+        with (
+            patch.object(FireworksClient, "analyze", side_effect=ScanError("Output truncated")),
+            patch.object(
+                JevClient, "evaluate", return_value=JevEvaluation({}, [0.5] * 5, "jev-test")
+            ),
+        ):
+            report = service.assess(demo_snapshot())
+        self.assertEqual(report["provider_runs"]["fireworks"]["status"], "failed")
+        self.assertEqual(report["provider_runs"]["jev"]["status"], "completed")
+        self.assertIn("Incomplete", report["coverage_status"])
+
+    def test_reasoning_runs_on_every_eligible_scan(self):
+        service = AssessmentService(FireworksClient("fake", "test"), JevClient(""))
+        with patch.object(FireworksClient, "analyze", return_value=[]) as analyze:
+            for _ in range(2):
+                report = service.assess(demo_snapshot())
+                self.assertEqual(report["provider_runs"]["fireworks"]["status"], "completed")
+        self.assertEqual(analyze.call_count, 2)
 
     def test_skipped_files_keep_report_incomplete(self):
         snap = demo_snapshot()

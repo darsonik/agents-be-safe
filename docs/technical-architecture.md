@@ -132,7 +132,7 @@ Supported extensions are `.md`, `.py`, `.js`, `.ts`, `.tsx`, `.mjs`, `.cjs`, `.j
 
 Static rules produce at most one match per rule per file. Matches include instruction overrides, dangerous execution patterns, possible credential transfer, broad permissions, and mutable/external dependencies. These indicators can also match harmless examples or documentation.
 
-Fireworks receives the selected source in a single chat-completion request. The request uses temperature `0`, JSON-object mode, and an output budget of `6,000` tokens. The configured model must support these options and have enough context for the selected files. There is no automatic chunking or model fallback.
+Fireworks receives the selected source in a single chat-completion request. The request uses temperature `0`, JSON-object mode, and an initial completion budget of `16,000` tokens (including model reasoning). The configured model must support these options and have enough context for the selected files. There is no automatic chunking or model fallback. A `length` finish reason triggers one new request with a `32,000`-token budget; other failures are not retried. Partial output is never accepted.
 
 The prompt requests at most 30 findings. Validation requires known categories and severities, nonempty bounded text fields, a collected source path, and an exact source quote. The application derives the line number from the first occurrence of that quote. It rejects the entire reasoning response if any finding is invalid or the model does not finish with `stop`.
 
@@ -171,8 +171,10 @@ Contracts live in `app/models.py`. `TypedDict` annotations document structure bu
 | `Snapshot` | `repository`, `commit`, `files`, `skipped`, `tree_truncated`, `candidate_count` |
 | `Finding` | `path`, `line`, `category`, `severity`, `title`, `evidence`, `explanation`, `remediation`, `origin`, `verification`, optional `support_probability` |
 | `JevEvaluation` | `dimensions`, ordered `finding_support`, `model` |
-| `Report` | Repository/commit, UTC creation time, mode, verdict, coverage status, providers, dimensions, findings, warnings, inspected-file metadata, skipped entries |
+| `Report` | Repository/commit, UTC creation time, mode, verdict, coverage status, providers, provider_runs, dimensions, findings, warnings, inspected-file metadata, skipped entries |
 | `Job` | `status`, `message`, Unix `started` timestamp, optional `report` |
+
+`provider_runs` records `completed`, `failed`, or `skipped` for each engine, plus a model on completion or a reason otherwise. Failed provider attempts remain incomplete coverage even when the other engine succeeds. The UI and Markdown export show failure reasons. Missing configuration, demo mode, and no eligible files are explicit skip reasons.
 
 The report retains evidence excerpts but does not include complete source-file contents. Job reads return deep copies, preventing callers from modifying the stored report. JSON export preserves the raw report, including technical provider identifiers. Markdown export also uses raw report fields; UI label substitutions are presentation-only.
 
@@ -216,7 +218,7 @@ Job IDs are generated with `secrets.token_urlsafe(24)`. They are opaque lookup i
 | Incoming connection timeout | 15 seconds |
 | Concurrent scan workers | 2 per application server |
 | Excess scan submissions | Rejected immediately; no waiting queue |
-| Retry/backoff | Not implemented |
+| Retry/backoff | One reasoning retry for token-limit truncation, with a larger completion budget; no general network retry/backoff |
 
 The file-count limit applies to successfully collected files, not total attempted blob requests. Repeated failures can therefore cause more than 40 blob requests. There is no global job-duration or request-attempt budget. Scan concurrency is bounded, but the development HTTP server's request threads are not managed by that semaphore.
 

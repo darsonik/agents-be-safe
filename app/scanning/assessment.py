@@ -56,6 +56,15 @@ class AssessmentService:
             "Jev probabilities and review thresholds are experimental and need calibration against labeled security cases.",
         ]
         providers = {"fireworks": "Not run", "jev": "Not run"}
+        provider_runs = {
+            key: {
+                "status": "skipped",
+                "reason": "Demo mode" if mode == "demo" else "No eligible files",
+            }
+            for key in providers
+        }
+        if mode == "demo":
+            providers = {key: "Skipped (demo)" for key in providers}
         dimensions = {}
         if mode == "live" and files:
             ai_files = [f for f in files if f["kind"] in ("Skill", "Agent", "MCP / configuration")]
@@ -72,12 +81,23 @@ class AssessmentService:
                         fw_findings = self.fireworks.analyze(ai_files)
                         findings += fw_findings
                         providers["fireworks"] = self.fireworks.model
+                        provider_runs["fireworks"] = {
+                            "status": "completed",
+                            "model": self.fireworks.model,
+                        }
                         logger.info("Fireworks analysis returned %d findings", len(fw_findings))
                     except ScanError as exc:
                         logger.warning("Fireworks analysis error: %s", exc)
+                        providers["fireworks"] = "Failed"
+                        provider_runs["fireworks"] = {"status": "failed", "reason": str(exc)}
                         warnings.append("Fireworks: " + str(exc))
                 else:
                     logger.info("Fireworks is not configured")
+                    providers["fireworks"] = "Not configured"
+                    provider_runs["fireworks"] = {
+                        "status": "skipped",
+                        "reason": "Model credentials or model ID are missing",
+                    }
                     warnings.append(
                         "Fireworks is not configured; set FIREWORKS_API_KEY and FIREWORKS_MODEL."
                     )
@@ -88,6 +108,7 @@ class AssessmentService:
                         annotate_support(findings, evaluation.finding_support)
                         dimensions = evaluation.dimensions
                         providers["jev"] = evaluation.model
+                        provider_runs["jev"] = {"status": "completed", "model": evaluation.model}
                         logger.info(
                             "Jev evaluation completed: model=%s, dimensions=%s",
                             evaluation.model,
@@ -95,9 +116,16 @@ class AssessmentService:
                         )
                     except ScanError as exc:
                         logger.warning("Jev evaluation error: %s", exc)
+                        providers["jev"] = "Failed"
+                        provider_runs["jev"] = {"status": "failed", "reason": str(exc)}
                         warnings.append("Jev: " + str(exc))
                 else:
                     logger.info("Jev is not configured")
+                    providers["jev"] = "Not configured"
+                    provider_runs["jev"] = {
+                        "status": "skipped",
+                        "reason": "Model credentials are missing",
+                    }
                     warnings.append("Jev is not configured; set TYPESAFE_API_KEY.")
             else:
                 logger.info(
@@ -132,7 +160,7 @@ class AssessmentService:
                 mode == "live"
                 and bool(files)
                 and not gaps
-                and all(v != "Not run" for v in providers.values())
+                and all(run["status"] == "completed" for run in provider_runs.values())
             )
             high = any(f["severity"] in ("critical", "high") for f in findings) or any(
                 p >= SUPPORT_THRESHOLD for p in dimensions.values()
@@ -160,6 +188,7 @@ class AssessmentService:
             "verdict": verdict,
             "coverage_status": coverage_status,
             "providers": providers,
+            "provider_runs": provider_runs,
             "dimensions": dimensions,
             "findings": sorted(findings, key=lambda f: SEVERITY_ORDER[f["severity"]]),
             "warnings": warnings,
