@@ -1,8 +1,9 @@
 const $ = id => document.getElementById(id);
 let currentReport = null;
+function displayText(value) { return String(value).replace(/FIREWORKS_API_KEY and FIREWORKS_MODEL/g, 'the reasoning model credentials and model').replace(/Fireworks/gi, 'Reasoning model'); }
 function node(tag, text, className) { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; if (className) el.className = className; return el; }
 async function api(path, options) { const res = await fetch(path, options); const data = await res.json(); if (!res.ok) throw new Error(data.error || 'Request failed'); return data; }
-api('/api/config').then(c => { $('configuration').textContent = `Fireworks: ${c.fireworks ? 'configured' : 'setup needed'}  ·  Jev: ${c.jev ? 'configured' : 'setup needed'}`; }).catch(() => { $('configuration').textContent = 'Could not check model configuration'; });
+api('/api/config').then(c => { $('configuration').textContent = `Powered by Jev · ${c.fireworks && c.jev ? 'Ready to analyze' : 'Model setup needed'}`; }).catch(() => { $('configuration').textContent = 'Could not check model configuration'; });
 async function scan(demo = false) {
   $('error').hidden = true; $('report').hidden = true; $('activity').hidden = false;
   $('scan-button').disabled = $('demo-button').disabled = true; $('activity-text').textContent = 'Preparing assessment…';
@@ -10,12 +11,12 @@ async function scan(demo = false) {
     const job = await api('/api/scans', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: $('repo').value.trim(), demo }) });
     while (true) {
       const state = await api(`/api/scans/${job.id}`);
-      $('activity-text').textContent = state.message;
+      $('activity-text').textContent = displayText(state.message);
       if (state.status === 'failed') throw new Error(state.message);
       if (state.status === 'completed') { currentReport = state.report; render(); break; }
       await new Promise(resolve => setTimeout(resolve, 1200));
     }
-  } catch (error) { $('error').textContent = error.message; $('error').hidden = false; }
+  } catch (error) { $('error').textContent = displayText(error.message); $('error').hidden = false; }
   finally { $('activity').hidden = true; $('scan-button').disabled = $('demo-button').disabled = false; }
 }
 $('scan-form').addEventListener('submit', e => { e.preventDefault(); scan(); });
@@ -36,8 +37,8 @@ function render() {
     const bar = node('progress'); bar.max = 1; bar.value = probability; bar.setAttribute('aria-label', key.replaceAll('_',' ')); row.append(bar); $('dimensions').append(row);
   }
   $('providers').replaceChildren();
-  for (const [key, value] of Object.entries(r.providers)) { const row = node('div', undefined, 'provider'); row.append(node('b', key === 'jev' ? 'TypeSafe / Jev' : 'Fireworks'), node('span', value)); $('providers').append(row); }
-  $('warnings').replaceChildren(...r.warnings.map(w => node('li', w)));
+  for (const [key, value] of Object.entries(r.providers)) { const row = node('div', undefined, 'provider'); row.append(node('b', key === 'jev' ? 'Jev' : 'Reasoning model'), node('span', key === 'jev' ? value : value === 'Not run' ? 'Not run' : 'Analysis completed')); $('providers').append(row); }
+  $('warnings').replaceChildren(...r.warnings.map(w => node('li', displayText(w))));
   $('coverage-note').textContent = `Inspected ${r.files.length} of ${r.candidate_count} candidate files. ${r.skipped.length} skipped entries. Repository tree ${r.tree_truncated ? 'was truncated by GitHub' : 'was not truncated'}. Only supported text formats are selected; dependencies and external servers are not followed.`;
   $('files').replaceChildren();
   for (const f of r.files) { const row = node('div', undefined, 'file-row'); row.append(node('span', f.path), node('span', `${f.kind} · ${f.lines} lines`)); $('files').append(row); }
@@ -50,7 +51,7 @@ function renderFindings() {
   if (!findings.length) $('findings').append(node('p', 'No findings in this view. Check assessment coverage and model availability before drawing conclusions.', 'empty'));
   for (const f of findings) {
     const card = node('article', undefined, 'finding'), top = node('div', undefined, 'finding-top');
-    top.append(node('span', f.severity, `badge ${f.severity}`), node('span', f.origin), node('span', `${f.verification}${f.support_probability === undefined ? '' : ` · ${Math.round(f.support_probability * 100)}% support`}`));
+    top.append(node('span', f.severity, `badge ${f.severity}`), node('span', displayText(f.origin)), node('span', `${f.verification}${f.support_probability === undefined ? '' : ` · ${Math.round(f.support_probability * 100)}% support`}`));
     card.append(top, node('h4', f.title));
     if (currentReport.mode === 'live') {
       const link = node('a', `${f.path}:${f.line}`, 'source'); link.href = `https://github.com/${currentReport.repository}/blob/${currentReport.commit}/${f.path.split('/').map(encodeURIComponent).join('/')}#L${f.line}`; link.target = '_blank'; link.rel = 'noopener noreferrer'; card.append(link);

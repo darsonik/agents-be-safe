@@ -11,3 +11,8 @@ wheels/
 .env
 .env.*
 !.env.example
+
+# Local development tooling
+.ruff_cache/
+.coverage
+htmlcov/

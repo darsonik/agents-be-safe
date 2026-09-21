@@ -2,6 +2,8 @@
 
 A local web application for reviewing public GitHub repositories that contain agent skills, MCP configuration, and custom tool implementations. Python 3.14+, no third-party dependencies.
 
+For component diagrams, scan flow, API contracts, configuration, and system limitations, see the [technical architecture document](docs/technical-architecture.md).
+
 ## Run
 
 ```powershell
@@ -21,7 +23,38 @@ python main.py
 
 Choose a Fireworks model that supports chat completions and JSON mode, with enough context for up to 180 KB of source plus the response. `TYPESAFE_MODEL` defaults to `jev-latest`. An optional `GITHUB_TOKEN` increases GitHub's API allowance. `PORT` defaults to 8000. `.env.example` documents settings; `.env` files are not loaded automatically. Never place credentials in browser code or commit them.
 
-## How assessment works
+## Project structure
+
+```text
+app/
+  config.py             # Immutable settings; environment read at startup
+  errors.py             # Safe, expected failure messages
+  http_client.py        # Shared bounded JSON transport; redirects refused
+  models.py             # Source, finding, evaluation, and report contracts
+  providers/
+    fireworks.py        # FireworksClient: reasoning and validated findings
+    jev.py              # JevClient: typed probabilities, no input mutation
+  scanning/
+    repository.py       # GitHub URL validation and commit-pinned collection
+    rules.py            # Deterministic risk indicators
+    evidence.py         # Source quote validation and line numbers
+    policy.py           # Risk dimensions, severity order, review thresholds
+    assessment.py       # AssessmentService: compose checks into a report
+    demo.py             # Fictional sample source
+  web/
+    server.py           # HTTP routes and application construction
+    jobs.py             # Background jobs, concurrency, and retention
+static/                 # Browser UI, styles, and report exports
+tests/                  # Focused configuration, provider, scan, job, API tests
+main.py                 # Local startup entry point
+pyproject.toml          # Python project and lint/format configuration
+```
+
+`main.py` starts the HTTP server. The server constructs settings, provider clients, the assessment service, and its own job manager. Jobs collect a repository snapshot and pass it to the assessment service. Provider clients handle their own API contracts; application policy controls report labels and verdicts. The shared transport is the single outbound network boundary, so tests can replace it without making paid calls.
+
+Configuration is passed explicitly rather than read throughout the code. Jev returns a `JevEvaluation`; the assessment service adds support labels to findings. Each server owns its job state instead of sharing module globals. Existing HTTP paths, report fields, UI branding, environment variable names, and `python main.py` startup are preserved.
+
+## Assessment flow
 
 1. Validate a canonical `https://github.com/owner/repository` URL. Resolve the default branch to an immutable commit and fetch its tree and blobs via the GitHub API. Redirects are refused.
 2. Prioritize SKILL.md and MCP-related paths, then supporting source. Inspect at most 40 UTF-8 files, 24 KB each, 180 KB total. No cloning, installs, subprocesses, imports, or MCP calls occur. Symlinks and submodules are not followed.
@@ -45,6 +78,15 @@ Before hosting for other users, add authentication, per-user report isolation, q
 python -m unittest discover -s tests -v
 ```
 
-Tests use mocked GitHub/model responses, plus real local HTTP requests. Paid provider calls require configured credentials and are not part of offline tests.
+Tests use mocked GitHub/model responses, plus real local HTTP requests. They cover provider response validation, evidence checks, assessment behavior, configuration, job isolation, and concurrency cleanup.
+
+Lint and formatting (with Ruff installed):
+
+```powershell
+python -m ruff check app tests main.py
+python -m ruff format --check app tests main.py
+```
+
+Paid provider calls require configured credentials and are not part of offline tests.
 
 Integration references: [Fireworks chat completions](https://docs.fireworks.ai/api-reference/post-chatcompletions), [TypeSafe HTTP API](https://docs.typesafe.ai/api), [Noul judgments](https://docs.typesafe.ai/primitives/noul), [citation checking pattern](https://docs.typesafe.ai/cookbooks/citation_check).
