@@ -1,5 +1,6 @@
 """Compose static checks and AI judgments into the public report contract."""
 
+import logging
 from datetime import datetime, timezone
 
 from app.config import Settings
@@ -10,6 +11,8 @@ from app.providers.jev import JevClient
 
 from .policy import DISAGREEMENT_THRESHOLD, SEVERITY_ORDER, SUPPORT_THRESHOLD
 from .rules import static_findings
+
+logger = logging.getLogger("agents_be_safe.assessment")
 
 
 def annotate_support(findings: list[Finding], probabilities: list[float]) -> None:
@@ -55,49 +58,99 @@ class AssessmentService:
         providers = {"fireworks": "Not run", "jev": "Not run"}
         dimensions = {}
         if mode == "live" and files:
-            progress("Fireworks is reviewing skills and tool implementations")
-            if self.fireworks.configured:
-                try:
-                    findings += self.fireworks.analyze(files)
-                    providers["fireworks"] = self.fireworks.model
-                except ScanError as exc:
-                    warnings.append("Fireworks: " + str(exc))
-            else:
-                warnings.append(
-                    "Fireworks is not configured; set FIREWORKS_API_KEY and FIREWORKS_MODEL."
+            ai_files = [f for f in files if f["kind"] in ("Skill", "Agent", "MCP / configuration")]
+            if ai_files:
+                logger.info(
+                    "Starting AI assessment on %d target files (%s): %s",
+                    len(ai_files),
+                    ", ".join({f["kind"] for f in ai_files}),
+                    [f["path"] for f in ai_files],
                 )
-            progress("Jev is evaluating risks and checking finding support")
-            if self.jev.configured:
-                try:
-                    evaluation = self.jev.evaluate(files, findings)
-                    annotate_support(findings, evaluation.finding_support)
-                    dimensions = evaluation.dimensions
-                    providers["jev"] = evaluation.model
-                except ScanError as exc:
-                    warnings.append("Jev: " + str(exc))
+                progress("Fireworks is reviewing skills and tool implementations")
+                if self.fireworks.configured:
+                    try:
+                        fw_findings = self.fireworks.analyze(ai_files)
+                        findings += fw_findings
+                        providers["fireworks"] = self.fireworks.model
+                        logger.info("Fireworks analysis returned %d findings", len(fw_findings))
+                    except ScanError as exc:
+                        logger.warning("Fireworks analysis error: %s", exc)
+                        warnings.append("Fireworks: " + str(exc))
+                else:
+                    logger.info("Fireworks is not configured")
+                    warnings.append(
+                        "Fireworks is not configured; set FIREWORKS_API_KEY and FIREWORKS_MODEL."
+                    )
+                progress("Jev is evaluating risks and checking finding support")
+                if self.jev.configured:
+                    try:
+                        evaluation = self.jev.evaluate(ai_files, findings)
+                        annotate_support(findings, evaluation.finding_support)
+                        dimensions = evaluation.dimensions
+                        providers["jev"] = evaluation.model
+                        logger.info(
+                            "Jev evaluation completed: model=%s, dimensions=%s",
+                            evaluation.model,
+                            dimensions,
+                        )
+                    except ScanError as exc:
+                        logger.warning("Jev evaluation error: %s", exc)
+                        warnings.append("Jev: " + str(exc))
+                else:
+                    logger.info("Jev is not configured")
+                    warnings.append("Jev is not configured; set TYPESAFE_API_KEY.")
             else:
-                warnings.append("Jev is not configured; set TYPESAFE_API_KEY.")
-        if mode == "demo":
-            warnings.insert(
-                0,
-                "Sample report: fictional files and static rules only. No AI calls were made.",
+                logger.info(
+                    "No skill, agent, or MCP configuration files identified for AI review among %d collected files",
+                    len(files),
+                )
+                warnings.append(
+                    "No agent skills, agent files, or MCP configuration files were identified for AI inspection."
+                )
+        if not files:
+            logger.info(
+                "No agent skills, agent files, or MCP configuration files were found in repository %s",
+                snapshot["repository"],
             )
-        gaps = bool(snapshot["skipped"] or snapshot["tree_truncated"] or not files)
-        complete = mode == "live" and not gaps and all(v != "Not run" for v in providers.values())
-        high = any(f["severity"] in ("critical", "high") for f in findings) or any(
-            p >= SUPPORT_THRESHOLD for p in dimensions.values()
-        )
-        if high:
-            verdict = "High risk indicators"
-        elif findings:
-            verdict = "Review required"
-        elif complete:
-            verdict = "No findings in inspected files"
+            warnings = [
+                "No agent skills, agent definition files, or MCP configurations exist in this repository. AI analysis was not run.",
+            ]
+            providers = {
+                "fireworks": "Not applicable (no agent files)",
+                "jev": "Not applicable (no agent files)",
+            }
+            verdict = "No agent, skill, or MCP files found"
+            coverage_status = "No agent, skill, or MCP files detected"
         else:
-            verdict = "Inconclusive"
-        if gaps:
-            warnings.append(
-                "Coverage is incomplete: some source could not be inspected. See the coverage section."
+            if mode == "demo":
+                warnings.insert(
+                    0,
+                    "Sample report: fictional files and static rules only. No AI calls were made.",
+                )
+            gaps = bool(snapshot["skipped"] or snapshot["tree_truncated"])
+            complete = (
+                mode == "live"
+                and bool(files)
+                and not gaps
+                and all(v != "Not run" for v in providers.values())
+            )
+            high = any(f["severity"] in ("critical", "high") for f in findings) or any(
+                p >= SUPPORT_THRESHOLD for p in dimensions.values()
+            )
+            if high:
+                verdict = "High risk indicators"
+            elif findings:
+                verdict = "Review required"
+            elif complete:
+                verdict = "No findings in inspected files"
+            else:
+                verdict = "Inconclusive"
+            if gaps:
+                warnings.append(
+                    "Coverage is incomplete: some source could not be inspected. See the coverage section."
+                )
+            coverage_status = (
+                "Bounded scan completed" if complete else "Incomplete / limited assessment"
             )
         return {
             "repository": snapshot["repository"],
@@ -105,9 +158,7 @@ class AssessmentService:
             "created_at": datetime.now(timezone.utc).isoformat(),
             "mode": mode,
             "verdict": verdict,
-            "coverage_status": "Bounded scan completed"
-            if complete
-            else "Incomplete / limited assessment",
+            "coverage_status": coverage_status,
             "providers": providers,
             "dimensions": dimensions,
             "findings": sorted(findings, key=lambda f: SEVERITY_ORDER[f["severity"]]),

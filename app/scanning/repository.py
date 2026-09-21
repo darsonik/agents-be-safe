@@ -1,6 +1,7 @@
 """Read-only, commit-pinned collection from public GitHub repositories."""
 
 import base64
+import logging
 import re
 import urllib.parse
 
@@ -8,6 +9,8 @@ from app import http_client
 from app.config import Settings
 from app.errors import ScanError
 from app.models import Progress, Snapshot, ignore_progress
+
+logger = logging.getLogger("agents_be_safe.repository")
 
 
 def parse_repo(value):
@@ -30,38 +33,115 @@ def parse_repo(value):
 
 def file_kind(path):
     lower = path.lower()
-    if lower.endswith("skill.md"):
+    parts = lower.split("/")
+    filename = parts[-1]
+    name_no_ext = filename.rsplit(".", 1)[0] if "." in filename else filename
+
+    if (
+        "skills" in parts
+        or "skill" in parts
+        or ".agents/skills" in lower
+        or filename.endswith("skill.md")
+        or "skill" in name_no_ext
+    ):
         return "Skill"
-    if "mcp" in lower or lower.endswith(("claude_desktop_config.json", "settings.json")):
+    if (
+        "mcp" in parts
+        or "mcps" in parts
+        or ".mcp" in parts
+        or "mcp" in name_no_ext
+        or filename
+        in (
+            "claude_desktop_config.json",
+            "settings.json",
+            ".mcp.json",
+            "mcp.json",
+            "cline_mcp_settings.json",
+            "mcp_config.json",
+            "mcp-config.json",
+            ".mcp_config.json",
+            "mcp_settings.json",
+        )
+    ):
         return "MCP / configuration"
+    if (
+        "agents" in parts
+        or "agent" in parts
+        or ".agents" in parts
+        or "subagents" in parts
+        or "subagent" in parts
+        or "rules" in parts
+        or filename
+        in (
+            "agents.md",
+            "agent.md",
+            "claude.md",
+            "gemini.md",
+            ".claude.md",
+            ".gemini.md",
+            "copilot-instructions.md",
+            "cursorrules",
+            ".cursorrules",
+            "windsurfrules",
+            ".windsurfrules",
+            "agent.json",
+            "agents.json",
+            "agent.yaml",
+            "agents.yaml",
+            "agent.yml",
+            "agents.yml",
+            "agent.toml",
+        )
+        or name_no_ext in ("agent", "agents", "subagent", "subagents")
+    ):
+        return "Agent"
     return "Supporting source"
 
 
 def candidate(path):
     lower = path.lower()
+    parts = lower.split("/")
     if any(
-        p in lower.split("/") for p in ("node_modules", ".git", "vendor", "dist", ".venv", "build")
+        p in parts
+        for p in (
+            "node_modules",
+            ".git",
+            "vendor",
+            "dist",
+            ".venv",
+            "build",
+            "__pycache__",
+            ".pytest_cache",
+        )
     ):
         return False
-    return lower.endswith(
-        (
-            ".md",
-            ".py",
-            ".js",
-            ".ts",
-            ".tsx",
-            ".mjs",
-            ".cjs",
-            ".json",
-            ".toml",
-            ".yaml",
-            ".yml",
-            ".sh",
-            ".ps1",
-            ".go",
-            ".rs",
-        )
+    filename = parts[-1]
+    valid_exts = (
+        ".md",
+        ".py",
+        ".js",
+        ".ts",
+        ".tsx",
+        ".mjs",
+        ".cjs",
+        ".json",
+        ".toml",
+        ".yaml",
+        ".yml",
+        ".sh",
+        ".ps1",
+        ".go",
+        ".rs",
     )
+    is_valid_ext = lower.endswith(valid_exts) or filename in (
+        ".cursorrules",
+        "cursorrules",
+        ".windsurfrules",
+        "windsurfrules",
+    )
+    if not is_valid_ext:
+        return False
+    return file_kind(path) in ("Skill", "Agent", "MCP / configuration")
 
 
 def collect(
@@ -89,7 +169,8 @@ def collect(
     selected = sorted(
         [e for e in entries if e.get("type") == "blob" and candidate(e["path"])],
         key=lambda e: (
-            file_kind(e["path"]) == "Supporting source",
+            file_kind(e["path"]) != "Skill",
+            file_kind(e["path"]) != "MCP / configuration",
             not e["path"].lower().endswith("skill.md"),
             e["path"],
         ),
@@ -129,6 +210,16 @@ def collect(
         {"path": e["path"], "reason": "Submodule not inspected"}
         for e in entries
         if e.get("type") == "commit"
+    )
+    logger.info(
+        "Repository collection completed for %s: %d files collected (Skills: %d, Agents: %d, MCP: %d, Supporting: %d), %d skipped",
+        repo,
+        len(files),
+        sum(1 for f in files if f["kind"] == "Skill"),
+        sum(1 for f in files if f["kind"] == "Agent"),
+        sum(1 for f in files if f["kind"] == "MCP / configuration"),
+        sum(1 for f in files if f["kind"] == "Supporting source"),
+        len(skipped),
     )
     return {
         "repository": repo,

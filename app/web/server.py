@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -12,6 +14,8 @@ from app.scanning.assessment import AssessmentService
 from app.scanning.repository import parse_repo
 
 from .jobs import JobManager
+
+logger = logging.getLogger("agents_be_safe.server")
 
 STATIC = Path(__file__).resolve().parents[2] / "static"
 
@@ -92,6 +96,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class ApplicationServer(ThreadingHTTPServer):
+    allow_reuse_address = sys.platform != "win32"
+
     def __init__(self, address: tuple[str, int], settings: Settings):
         self.settings = settings
         self.jobs = JobManager(settings, AssessmentService.from_settings(settings))
@@ -107,7 +113,21 @@ def create_server(
 
 
 def serve() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
     server = create_server()
+    logger.info("Agents Be Safe starting at http://127.0.0.1:%s", server.server_port)
+    logger.info(
+        "Configured providers: Fireworks=%s (%s), Jev=%s (%s), GitHub Token=%s",
+        server.settings.provider_status["fireworks"],
+        server.settings.fireworks_model or "none",
+        server.settings.provider_status["jev"],
+        server.settings.typesafe_model,
+        bool(server.settings.github_token),
+    )
     print(f"Agents Be Safe is running at http://127.0.0.1:{server.server_port}")
     try:
         server.serve_forever()

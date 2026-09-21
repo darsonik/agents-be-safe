@@ -31,24 +31,28 @@ function render() {
   $('candidate-count').textContent = `${r.candidate_count} candidate files discovered`;
   $('high-count').textContent = r.findings.filter(f => ['high','critical'].includes(f.severity)).length;
   $('severity').value = 'all'; renderFindings(); $('dimensions').replaceChildren();
-  if (!Object.keys(r.dimensions).length) $('dimensions').append(node('p', 'Jev did not run. No AI probabilities are available.', 'muted'));
+  if (!Object.keys(r.dimensions).length) $('dimensions').append(node('p', r.files.length === 0 ? 'No agent, skill, or MCP files exist in this project to evaluate.' : 'Jev did not run. No AI probabilities are available.', 'muted'));
   for (const [key, probability] of Object.entries(r.dimensions)) {
     const row = node('div', undefined, 'dimension'); row.append(node('span', key.replaceAll('_',' ')), node('b', `${Math.round(probability * 100)}%`));
     const bar = node('progress'); bar.max = 1; bar.value = probability; bar.setAttribute('aria-label', key.replaceAll('_',' ')); row.append(bar); $('dimensions').append(row);
   }
   $('providers').replaceChildren();
-  for (const [key, value] of Object.entries(r.providers)) { const row = node('div', undefined, 'provider'); row.append(node('b', key === 'jev' ? 'Jev' : 'Reasoning model'), node('span', key === 'jev' ? value : value === 'Not run' ? 'Not run' : 'Analysis completed')); $('providers').append(row); }
+  for (const [key, value] of Object.entries(r.providers)) { const row = node('div', undefined, 'provider'); row.append(node('b', key === 'jev' ? 'Jev' : 'Reasoning model'), node('span', key === 'jev' ? value : value.startsWith('Not applicable') ? 'Not applicable' : value === 'Not run' ? 'Not run' : 'Analysis completed')); $('providers').append(row); }
   $('warnings').replaceChildren(...r.warnings.map(w => node('li', displayText(w))));
-  $('coverage-note').textContent = `Inspected ${r.files.length} of ${r.candidate_count} candidate files. ${r.skipped.length} skipped entries. Repository tree ${r.tree_truncated ? 'was truncated by GitHub' : 'was not truncated'}. Only supported text formats are selected; dependencies and external servers are not followed.`;
+  $('coverage-note').textContent = r.files.length === 0 ? 'No candidate agent skills, agent files, or MCP configuration files were found in this repository. Only supported agent and MCP files are selected; dependencies and external servers are not followed.' : `Inspected ${r.files.length} of ${r.candidate_count} candidate files. ${r.skipped.length} skipped entries. Repository tree ${r.tree_truncated ? 'was truncated by GitHub' : 'was not truncated'}. Only supported text formats are selected; dependencies and external servers are not followed.`;
   $('files').replaceChildren();
-  for (const f of r.files) { const row = node('div', undefined, 'file-row'); row.append(node('span', f.path), node('span', `${f.kind} · ${f.lines} lines`)); $('files').append(row); }
+  if (r.files.length === 0) {
+    const emptyRow = node('div', undefined, 'file-row'); emptyRow.append(node('span', 'No agent skills, agent definition files, or MCP configuration files exist in this project.'), node('span', '0 files')); $('files').append(emptyRow);
+  } else {
+    for (const f of r.files) { const row = node('div', undefined, 'file-row'); row.append(node('span', f.path), node('span', `${f.kind} · ${f.lines} lines`)); $('files').append(row); }
+  }
   for (const f of r.skipped) { const row = node('div', undefined, 'file-row'); row.append(node('span', f.path), node('span', `Skipped: ${f.reason}`)); $('files').append(row); }
   $('report').hidden = false; $('how').hidden = true; $('report').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 function renderFindings() {
   const findings = currentReport.findings.filter(f => $('severity').value === 'all' || f.severity === $('severity').value);
   $('findings').replaceChildren();
-  if (!findings.length) $('findings').append(node('p', 'No findings in this view. Check assessment coverage and model availability before drawing conclusions.', 'empty'));
+  if (!findings.length) $('findings').append(node('p', currentReport.files.length === 0 ? 'No agent skills, agent files, or MCP configurations exist in this project. Nothing to assess.' : 'No findings in this view. Check assessment coverage and model availability before drawing conclusions.', 'empty'));
   for (const f of findings) {
     const card = node('article', undefined, 'finding'), top = node('div', undefined, 'finding-top');
     top.append(node('span', f.severity, `badge ${f.severity}`), node('span', displayText(f.origin)), node('span', `${f.verification}${f.support_probability === undefined ? '' : ` · ${Math.round(f.support_probability * 100)}% support`}`));

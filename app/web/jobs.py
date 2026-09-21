@@ -1,6 +1,7 @@
 """In-memory scan jobs owned by one server, with bounded concurrency and retention."""
 
 import copy
+import logging
 import secrets
 import threading
 import time
@@ -12,6 +13,8 @@ from app.models import Report
 from app.scanning.assessment import AssessmentService
 from app.scanning.demo import demo_snapshot
 from app.scanning.repository import collect
+
+logger = logging.getLogger("agents_be_safe.jobs")
 
 
 class Job(TypedDict):
@@ -52,6 +55,7 @@ class JobManager:
                     "message": "Preparing scan",
                     "started": time.time(),
                 }
+            logger.info("Scan job %s submitted for %s (demo=%s)", job_id, url or "(demo)", demo)
             threading.Thread(target=self._run, args=(job_id, url, demo), daemon=True).start()
         except Exception:
             with self._lock:
@@ -74,16 +78,31 @@ class JobManager:
             del self._jobs[key]
 
     def _run(self, job_id: str, url: str, demo: bool) -> None:
+        start_time = time.time()
+        logger.info("[Job %s] Starting scan for url=%s (demo=%s)", job_id, url or "(demo)", demo)
+
         def update(message: str) -> None:
+            logger.info("[Job %s] Progress: %s", job_id, message)
             with self._lock:
                 self._jobs[job_id]["message"] = message
 
         try:
             snapshot = demo_snapshot() if demo else collect(url, update, settings=self.settings)
             report = self.assessment.assess(snapshot, "demo" if demo else "live", update)
+            elapsed = time.time() - start_time
+            logger.info(
+                "[Job %s] Scan completed in %.1fs: verdict=%s, findings=%d, warnings=%d",
+                job_id,
+                elapsed,
+                report.get("verdict"),
+                len(report.get("findings", [])),
+                len(report.get("warnings", [])),
+            )
             with self._lock:
                 self._jobs[job_id].update(status="completed", report=report, message="Report ready")
         except Exception as exc:
+            elapsed = time.time() - start_time
+            logger.warning("[Job %s] Scan failed after %.1fs: %s", job_id, elapsed, exc)
             message = (
                 str(exc)
                 if isinstance(exc, ScanError)

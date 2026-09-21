@@ -14,6 +14,20 @@ from app.scanning.policy import DIMENSIONS
 
 
 class AssessmentTests(unittest.TestCase):
+    def test_empty_files_produces_no_agent_files_verdict(self):
+        snap = demo_snapshot()
+        snap["files"] = []
+        snap["candidate_count"] = 0
+        result = AssessmentService.from_settings(Settings()).assess(snap)
+        self.assertEqual(result["verdict"], "No agent, skill, or MCP files found")
+        self.assertEqual(result["coverage_status"], "No agent, skill, or MCP files detected")
+        self.assertTrue(
+            any(
+                "No agent skills, agent definition files, or MCP configurations exist" in w
+                for w in result["warnings"]
+            )
+        )
+
     def test_missing_providers_never_certify_safety(self):
         snap = demo_snapshot()
         snap["files"] = [{"path": "SKILL.md", "kind": "Skill", "content": "# Hello"}]

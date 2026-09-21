@@ -38,12 +38,12 @@ class RepositoryTests(unittest.TestCase):
                     },
                     {
                         "type": "blob",
-                        "path": "link.py",
+                        "path": "skills/link.py",
                         "size": 9,
                         "sha": sha,
                         "mode": "120000",
                     },
-                    {"type": "blob", "path": "big.py", "size": 99000, "sha": sha},
+                    {"type": "blob", "path": "skills/big.py", "size": 99000, "sha": sha},
                     {"type": "commit", "path": "external"},
                 ]
             },
@@ -61,3 +61,10 @@ class RepositoryTests(unittest.TestCase):
         self.assertFalse(candidate("secrets.env"))
         self.assertTrue(candidate(".mcp.json"))
         self.assertTrue(candidate(".agents/skills/helper/SKILL.md"))
+        self.assertTrue(candidate("agents/worker.py"))
+        self.assertTrue(candidate("AGENTS.md"))
+        self.assertTrue(candidate(".cursorrules"))
+        self.assertFalse(candidate("src/database.py"))
+        self.assertFalse(candidate("tests/test_sql.py"))
+        self.assertFalse(candidate("README.md"))
+        self.assertFalse(candidate("benchmarks/run.py"))
