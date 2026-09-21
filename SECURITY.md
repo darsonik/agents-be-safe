@@ -11,9 +11,28 @@ Only the latest release and the current `master` branch receive security updates
 
 ---
 
+## Repository & Contribution Security Rules
+
+To protect the integrity of the codebase and prevent supply-chain tampering:
+
+1. **Branch Protection Enforced:** Direct pushes (`git push origin master`) to the default branch (`master`) are strictly prohibited and blocked by repository protection rules.
+2. **Pull Request Workflow:** All code modifications, bug fixes, and security patches must be submitted through a feature branch or fork and merged via a Pull Request.
+3. **Protected History:** Force pushes (`git push --force`) and branch deletions on protected branches are permanently blocked.
+4. **Code Review & Audit:** Every pull request is subject to review and verification prior to merging.
+
+---
+
+## Secrets & Credentials Policy
+
+- **No Secrets in Source:** API keys, tokens, passwords, private certificates, or confidential endpoints must **never** be committed to the repository.
+- **Environment Isolation:** Local `.env` and credential files are strictly ignored via `.gitignore`. Always use `.env.example` with empty template values for documenting configuration.
+- **In-Memory Redaction:** Application settings and provider clients intentionally mask credentials in representations (`repr=False`) to prevent unintentional disclosure in logs or exception messages.
+
+---
+
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability or potential threat in **Agents Be Safe**, please report it privately. **Do not create public GitHub issues or discussions for security vulnerabilities.**
+If you discover a security vulnerability or potential threat in **Agents Be Safe**, please report it privately. **Do not open public GitHub issues or discussions for security vulnerabilities.**
 
 ### How to Report
 
@@ -43,18 +62,27 @@ To help us investigate and triage the issue quickly, please include:
 
 ---
 
-## Security Architecture & Scope
+## Security Architecture & Boundaries
 
 **Agents Be Safe** is designed as a local, read-only analysis tool with explicit security boundaries:
 
-- **Local Loopback Binding:** The application server binds exclusively to `127.0.0.1` by default and is not intended to be exposed directly to the public internet without an external authentication proxy.
+- **Local Loopback Binding:** The application server binds exclusively to `127.0.0.1` by default and is not intended to be exposed directly to the public internet without an external authentication reverse proxy.
 - **Read-Only Analysis:** Untrusted repositories are inspected strictly via text, AST, and JSON API payloads. The scanner never clones, executes, imports, or installs code from target repositories.
 - **SSRF Prevention:** Repository ingestion enforces strict URL validation against canonical GitHub repository endpoints (`https://github.com/owner/repo`) and refuses HTTP redirects.
-- **Credential Protection:** API keys (`FIREWORKS_API_KEY`, `TYPESAFE_API_KEY`, `GITHUB_TOKEN`) are retained solely in server configuration memory with redacted representations (`repr=False`) and are never returned to client-side browsers.
+- **Credential Protection:** API keys (`FIREWORKS_API_KEY`, `TYPESAFE_API_KEY`, `GITHUB_TOKEN`) are retained solely in server configuration memory and are never exposed to client-side browsers.
 
 ### Out of Scope
 
 The following are considered out of scope for security reports:
 - Attacks requiring physical access to the local machine or pre-existing arbitrary code execution privileges on the host.
-- Issues caused by deliberately exposing the development server (`main.py`) to untrusted networks without authentication.
+- Issues caused by deliberately exposing the local development server (`main.py`) to untrusted networks without authentication.
 - Model classification inaccuracies or heuristic evasion by adversarial prompt content, which are limitations of AI-assisted heuristics rather than software vulnerabilities.
+
+---
+
+## Commercial Licensing Compliance
+
+This project is governed by a **Source-Available Non-Commercial License** ([LICENSE](LICENSE)):
+- **Personal & Non-Commercial Use:** Free to use, modify, and distribute.
+- **Commercial Use:** Any commercial use (hosted services, SaaS, embedding in commercial products, enterprise deployment) requires **prior written authorization** and an agreed **royalty arrangement**.
+- **Commercial Inquiries:** Contact [tuhinkarmakar98@outlook.com](mailto:tuhinkarmakar98@outlook.com) to discuss licensing agreements before any commercial deployment.
